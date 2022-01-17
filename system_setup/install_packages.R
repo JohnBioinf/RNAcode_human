@@ -1,0 +1,5 @@
+# install.packages("ggplot2", repos='http://cran.us.r-project.org')
+# install.packages("plotly", repos='http://cran.us.r-project.org')
+# install.packages("htmlwidgets", repos='http://cran.us.r-project.org')
+# install.packages("rjson", repos='http://cran.us.r-project.org')
+install.packages("Cairo", repos='http://cran.us.r-project.org')

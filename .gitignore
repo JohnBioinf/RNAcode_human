@@ -1,3 +1,9 @@
+parametes_local.json
+*.swo
+*.swp
+venv_k61/
+parameters_local.json
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
