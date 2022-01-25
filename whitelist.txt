@@ -24,6 +24,13 @@ bedtools
 IntervalFrameTree
 concat
 concated
+discontious
+fn
+EOF
+RNAcode
+Acode
+ret
+imped
 
 Bioinf
 taxid
@@ -93,3 +100,5 @@ smtplib
 addr
 listdir
 intervaltree
+getitem
+readline

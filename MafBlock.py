@@ -4,14 +4,22 @@
 
 from copy import deepcopy
 import subprocess
+import gzip
+
+
+def append_html(string):
+    """Do maf block."""
+    with open("/homes/biertruck/john/public_html/mview/test_concat_parts.html", "a", encoding="UTF-8") as f_handle:
+        f_handle.write(string)
 
 
 class MafBlock:
     """A maf block."""
 
-    def __init__(self, lines=None):
+    def __init__(self, lines=None, allowed_dist=12):
         """Construct class."""
         self.block = []
+        self.allowed_dist = allowed_dist
         if lines:
             self.add(lines)
 
@@ -56,11 +64,18 @@ class MafBlock:
         return len(self.block)
 
     def __len__(self):
-        """Get the length of the alignment."""
+        """Get the length of target sequence with gaps."""
         if self.is_empty():
             return 0
         else:
             return len(self.block[1][-1])
+
+    def len_no_gaps(self):
+        """Get the length of target sequence without gaps."""
+        if self.is_empty():
+            return 0
+        else:
+            return len(self.block[1][-1].replace("-", ""))
 
     def coordinates(self):
         """Return start and end of maf-block."""
@@ -84,6 +99,14 @@ class MafBlock:
         """Get index of line which is identified by species."""
         # return [i for i, line in enumerate(self.blocks) if line[1] == species][0]
         return [line for line in self.block if line[1] == species][0]
+
+    def delete_species(self, species):
+        """Delte species from block."""
+        if isinstance(species, list):
+            for species_name in species:
+                self.delete_species(species_name)
+        else:
+            self.block = [line for line in self.block if line[1] != species]
 
     def get_all_species(self, no_target=False):
         """Get all species in maf."""
@@ -112,13 +135,17 @@ class MafBlock:
             process.wait()
             return process.returncode, process.communicate()[0].decode("UTF-8")
 
-    def generate_html(self, out_dir, name=None, url_base=None, tmp_fasta_path="./tmp.fasta"):
+    def generate_html(
+        self, out_dir, name=None, url_base=None, tmp_fasta_path="./tmp.fasta"
+    ):
         """Write out a nice alignment view of the maf block.
 
         Based on mview. (https://sourceforge.net/projects/bio-mview/files/bio-mview/mview-1.67/mview-1.67.tar.gz)
         """
+        html_file_path = f"{out_dir}/{name}.html"
         if self.is_empty():
-            print("Maf Block is empty.")
+            with open(html_file_path, "a", encoding="UTF-8") as f_handle:
+                f_handle.write("<p>Empty Maf Block</p><br>")
             return
         return_code, out = self._system_call("command -v mview")
         if return_code != 0:
@@ -128,12 +155,18 @@ class MafBlock:
             for entry in self.block:
                 if entry[0] == "a":
                     continue
-                f_handle.write(f">{entry[1]}-{entry[2]}:{int(entry[3])+int(entry[2])}\n{entry[-1]}\n")
+                f_handle.write(
+                    f">{entry[1]}_{entry[2]}:{int(entry[3])+int(entry[2])}\n{entry[-1]}\n"
+                )
         if not name:
             name = self.block[1][1] if self.block[0][0] == "a" else self.block[0][1]
 
-        call = f"./mview_wrapper.sh {tmp_fasta_path} {out_dir}/{name}.html"
-        self._system_call(call)
+        call = f"./mview_wrapper.sh {tmp_fasta_path} {html_file_path}"
+        return_code, out = self._system_call(call)
+        if return_code != 0 or out != "":
+            print(out)
+            raise SystemError("mview exited with error")
+
         if url_base:
             print(f"See alignment under:\n{url_base}/{name}.html")
 
@@ -212,19 +245,33 @@ class MafBlock:
                 entry[-1] = entry[-1][:position] + symbol + entry[-1][position:]
 
     def is_continuous_with(self, other):
-        """Test if two maf blocks are continuous, only accept non existing species."""
+        """Test if two maf blocks are continuous.
+
+        Coninuity is based on the distance and the orientation of the sequences
+        in the genome. If the distance between two sequences of the same species
+        in two maf blocks is greater than the attribute allowed_dist the two
+        blocks are discontinous. If the strand changes or the next block starts
+        before the current block the two blocks are also discontinous. Ignored
+        are species that only exist in one block but not the other, because
+        these species can be easily replaced with only gaps in the next block.
+
+        :param MafBlock arg1: Another MafBlock.
+        :return: bigest distance of two sequences between any species which are
+            continous. And a list of species which are discontinous.
+        :rtype: (int, list)
+        """
         if self.is_empty():
             return False, -1
 
         if int(self.block[1][2]) > int(other.block[1][2]):
             raise ValueError("Maf block self is after maf block other")
 
+        other_species = set(other.get_all_species(no_target=True))
+        self_species = set(self.get_all_species(no_target=True))
+
         max_dist = 0
-        discontious = False
-        discontious_count = 0
-        for species in set(other.get_all_species(no_target=True)).intersection(
-            set(self.get_all_species(no_target=True))
-        ):
+        discontious_species = []
+        for species in other_species.intersection(self_species):
             species_line_self = self.get_line_of_species(species)
             end_self = int(species_line_self[2]) + int(species_line_self[3])
             strand_self = species_line_self[4]
@@ -232,39 +279,59 @@ class MafBlock:
             species_line_other = other.get_line_of_species(species)
             start_other = int(species_line_other[2])
             strand_other = species_line_other[4]
-            max_dist = max(start_other - end_self, max_dist)
+            # print(species)
+            # print(start_other - end_self)
             if (
                 strand_self != strand_other
-                or end_self + 12 < start_other
+                or end_self + self.allowed_dist < start_other
                 or end_self > start_other
             ):
-                # print(f"Dicontinous because of {species}-> strand:{strand_self != strand_other}, distance:{start_other - end_self}, reverse:{end_self > start_other}")
-                discontious = True
-                discontious_count += 1
-        if discontious:
-            print(f"Dicontinous because of {discontious_count}")
-            return False, -1
-        return True, max_dist
+                print(f"Discontious because of {species}-> strand:{strand_self != strand_other}, distance:{start_other - end_self}, reverse:{end_self > start_other}")
+                discontious_species.append(species)
+            else:
+                max_dist = max(start_other - end_self, max_dist)
 
-    def concat(self, other):
-        """Concat to maf blocks."""
-        continuous, max_dist = self.is_continuous_with(other)
+        return max_dist, discontious_species
 
-        if not continuous:
-            raise ValueError("Maf block self and other are not continuous")
+    def concat(self, other, max_del=0):
+        """Concat to maf blocks.
+
+        :param MafBlock arg1: Another MafBlock.
+        :param int arg1: The number of species that are allowed to be deleted.
+        :return: 0 if concatination was sucessfull, negativ int if x species
+            imped concatination
+        :rtype: int
+        """
+        max_dist, discontious_species = self.is_continuous_with(other)
+
+        if len(discontious_species) > max_del:
+            print(discontious_species)
+            return -len(discontious_species)
+
         new_other = deepcopy(other)
+
+        # This deletes species if no species imped list should be empty.
+        self.delete_species(discontious_species)
+        new_other.delete_species(discontious_species)
+
         # Below could be a private method
         length_other = len(other)
         length_self = len(self)
-        other_species = other.get_all_species(no_target=True)
-        self_species = self.get_all_species(no_target=True)
-        # if set(other_species) != set(self_species):
-        #     print(f"Add species:{set(other_species).symmetric_difference(set(self_species))}")
-        # if max_dist != 0:
-        #     print("Add bridge")
-        for species in self_species:
-            if species in other_species:
-                continue
+        other_species = set(new_other.get_all_species(no_target=True))
+        self_species = set(self.get_all_species(no_target=True))
+
+        # VERBOSE
+        if other_species != self_species:
+            print(f"Add species to other: {self_species - other_species}")
+            print(f"Add species to self: {other_species - self_species}")
+            # print(other_species)
+            # print(self_species)
+
+        if max_dist != 0:
+            print(f"Add bridge length {max_dist}")
+
+        # Add new species to other
+        for species in self_species - other_species:
             species_line_self = self.get_line_of_species(species)
             start = str(int(species_line_self[2]) + int(species_line_self[3]))
             strand = species_line_self[4]
@@ -273,9 +340,8 @@ class MafBlock:
                 ["s", species, start, "0", strand, genome_length, "-" * length_other]
             )
 
-        for species in other_species:
-            if species in self_species:
-                continue
+        # Add new species to self
+        for species in other_species - self_species:
             species_line_other = other.get_line_of_species(species)
             genome_length = species_line_other[5]
             strand = species_line_other[4]
@@ -284,9 +350,12 @@ class MafBlock:
                 ["s", species, start, "0", strand, genome_length, "-" * length_self]
             )
 
+        # Concat
         for i, self_line in enumerate(self.block[1:]):
+            # First line is target
             if i == 0:
                 other_line = new_other.block[1]
+            # Get the other line
             else:
                 species = self_line[1]
                 other_line = new_other.get_line_of_species(species)
@@ -296,62 +365,307 @@ class MafBlock:
             gap_seq = dist * "X" + (max_dist - dist) * "-"
             # new length
             self_line[3] = str(int(self_line[3]) + int(other_line[3]) + dist)
+            # new seq
             self_line[6] = self_line[6] + gap_seq + other_line[6]
 
-#    def concat(self, other):
-#        """Concat to maf blocks."""
-#        if self.block == []:
-#            self.block = other.block
-#            return
-#        if other.block == []:
-#            return
-#        new_other = deepcopy(other)
-#        other_species = other.get_all_species()
-#        self_species = self.get_all_species()
-#        for species in self_species:
-#            if species in other_species:
-#                continue
-#            overhang_nucs = self.get_overhanging_nucs(species)
-#            genome_length = [line[5] for line in other.block if line[1] == species][0]
-#            seq = "X" * overhang_nucs + (len(other) - overhang_nucs) * "-"
-#            new_other.add(["s", species, 0, 0, "+", genome_length, seq])
-#
-#        for species in other_species:
-#            if species in other_species:
-#                continue
-#            genome_length = [line[5] for line in other.block if line[1] == species][0]
-#            self.add(["s", species, 0, 0, "+", genome_length, len(other) * "-"])
-#
-#        for species in set(self_species, other_species):
-#            self_species_index = self.get_line_of_species(species)
-#            other_species_index = new_other.get_line_of_species(species)
-#            self.block[self_species_index][-1] = self.block[self_species_index][-1] + new_other.block[other_species_index][-1]
-#
-#    def get_overhanging_nucs(self, species):
-#        """Get the number of nucleotides that should overhang into next block to preserve frame."""
-#        if self.block[0][0] == "a":
-#            target_seq = self.block[1][-1]
-#        else:
-#            target_seq = self.block[0][-1]
-#        species_seq = [line[5] for line in self.block if line[1] == species][0]
-#        nuc_count_target = 0
-#        nuc_count_species = 0
-#        for i in range(len(target_seq) - 1, -1, -1):
-#            if target_seq[i] == "-":
-#                target_gap = True
-#            else:
-#                target_gap = False
-#                nuc_count_target += 1
-#            if species_seq[i] == "-":
-#                species_gap = True
-#            else:
-#                species_gap = False
-#                nuc_count_species += 1
-#            if not target_gap and not species_gap:
-#                break
-#        else:
-#            raise ValueError(
-#                f"No nucleotide alignes between target and {species} in {self.block[1][1]}"
-#            )
-#        nuc_diff = abs(nuc_count_species - nuc_count_species)
-#        return nuc_diff % 3
+        return 0
+
+
+class MafStream:
+    """A generator that iterates over a maf file."""
+
+    def __init__(
+        self,
+        path=None,
+        min_length_del=None,
+        max_del_species=None,
+        min_size=None,
+        min_length=None,
+        max_len_no_split=None,
+    ):
+        """Init stream with path to file."""
+        for arg, value in locals().items():
+            if arg == "self":
+                continue
+            if value is None:
+                raise ValueError("all arguments must be set")
+
+            setattr(self, arg, value)
+
+        self.off_set_dic = {}
+
+    def __iter__(self):
+        """Iterat over maf blocks in file."""
+        if self.path.endswith("gz"):
+            open_fn = gzip.open
+            read_arg = "rb"
+        else:
+            open_fn = gzip.open
+            read_arg = "r"
+        block_index = 0
+        off_set = 0
+        maf = MafBlock()
+        with open_fn(self.path, read_arg) as maf_handle:
+            for line in maf_handle:
+                try:
+                    line = line.decode("UTF8")
+                except AttributeError:
+                    pass
+                if line[0] == "a":
+                    self.off_set_dic[block_index] = off_set
+
+                off_set += len(line)
+
+                if line != "\n":
+                    maf.add(line)
+                else:
+                    yield block_index, maf
+                    maf = MafBlock()
+                    block_index += 1
+
+    def iterate_from(self, block_index):
+        """Iterate over maf blocks starting with specific block index.
+
+        The attribute off_set_dic is used to make jumps.
+        """
+        if self.path.endswith("gz"):
+            open_fn = gzip.open
+            read_arg = "rb"
+        else:
+            open_fn = gzip.open
+            read_arg = "r"
+
+        if block_index in self.off_set_dic:
+            current_block_index = block_index
+            off_set = self.off_set_dic[current_block_index]
+        # If block index is not in dic get highest block index
+        # This should be most of the time used maybe this a list would be
+        # quicker compared to dic?
+        elif len(self.off_set_dic) == 0:
+            current_block_index = block_index
+            off_set = 0
+        else:
+            current_block_index = sorted(list(self.off_set_dic.keys()))[-1]
+            off_set = self.off_set_dic[current_block_index]
+
+        maf = MafBlock()
+        with open_fn(self.path, read_arg) as maf_handle:
+            maf_handle.seek(off_set)
+            while True:
+                line = maf_handle.readline().decode("UTF8")
+                # EOF
+                if line == "":
+                    if current_block_index < block_index:
+                        raise IndexError("block index out of range")
+                    break
+
+                if line[0] == "a":
+                    self.off_set_dic[current_block_index] = off_set
+
+                off_set += len(line)
+
+                if line != "\n":
+                    maf.add(line)
+                else:
+                    if current_block_index >= block_index:
+                        yield current_block_index, maf
+                    maf = MafBlock()
+                    current_block_index += 1
+
+    def concat_blocks(self, block_index, only_block=True, split=False):
+        """Concatinate blocks starting with a specific block index."""
+        maf_list = []
+        maf = MafBlock()
+
+        for block_index, next_maf in self.iterate_from(block_index):
+            next_maf.add_suffix(f"_block-index_{block_index}")
+
+            # Only first iteration
+            if maf.is_empty():
+                maf = next_maf
+                continue
+
+            return_value = maf.concat(next_maf)
+            # Return value is zero if concatenation was successful
+            if return_value == 0:
+                pass
+            # The returned negative int says how many species imped a
+            # concatenation.
+            elif return_value >= -self.max_del_species:
+                # If the current block or the next block are below threshold
+                # force concatenation even with deleting species.
+                try:
+                    # Test if the current maf block is to small
+                    if maf.len_no_gaps() < self.min_length_del:
+                        maf.concat(next_maf, max_del=self.max_del_species)
+                    # Test if the next maf block is to small
+                    elif next_maf.len_no_gaps() < self.min_length_del:
+                        # Test if the next block can also not be extend to
+                        # become big enough.
+                        future_maf = self.concat_blocks(block_index)
+                        if future_maf.len_no_gaps() < self.min_length_del:
+                            maf.concat(next_maf, max_del=self.max_del_species)
+                        else:
+                            return_value = -self.max_del_species - 1
+
+                    # If both blocks are sufficiently big keep current block and
+                    # proceed with concatenation with next block.
+                    else:
+                        return_value = -self.max_del_species - 1
+                # Catch EOF
+                except IndexError as e:
+                    if str(e) == "block index out of range":
+                        return_value = -self.max_del_species - 1
+                    else:
+                        raise
+
+            # Here concatenation ends. Either to many impeding species or
+            # impeding species is below self.max_del_species but both maf
+            # blocks, the current and the next are big enough.
+            if return_value < -self.max_del_species:
+                if only_block:
+                    return maf
+                # Catches lower bound size
+                if (
+                    maf.size() - 1 < self.min_size
+                    and len(maf.block[1][-1].replace("-", "")) < self.min_length
+                ):
+                    maf = next_maf
+                    continue
+                if split:
+                    maf_list += maf.preprocess_block(self.max_len_no_split)
+                else:
+                    maf_list.append(maf)
+                maf = next_maf
+
+        if only_block:
+            return maf
+        maf_list.append(maf)
+        return maf_list
+
+    def concat_blocks_verbose(self, block_index, only_block=True, split=False):
+        """Concatinate blocks starting with a specific block index, with verbose."""
+        maf_list = []
+        maf = MafBlock()
+
+        for block_index, next_maf in self.iterate_from(block_index):
+            next_maf.add_suffix(f"_block-index_{block_index}")
+            # VERBOSE
+            # if block_index > 10:
+            #     break
+            print()
+            print(f"Iteration: {block_index}")
+            print(f"Length maf: {len(maf)}")
+            for line in maf.block[1:]:
+                print(f"{line[1]}: {len(line[-1])}")
+            print(f"Length next maf: {len(next_maf)}")
+            for line in next_maf.block[1:]:
+                print(f"{line[1]}: {len(line[-1])}")
+            append_html(f"<h2>Iteration: {block_index}</h2>\n")
+            append_html("<h3>Current Maf Block</h3>\n")
+            maf.generate_html("/homes/biertruck/john/public_html/mview/", name="test_concat_parts")
+            append_html("<h3>Next Maf Block</h3>\n")
+            next_maf.generate_html("/homes/biertruck/john/public_html/mview/", name="test_concat_parts")
+
+            # Only first iteration
+            if maf.is_empty():
+                maf = next_maf
+                continue
+
+            return_value = maf.concat(next_maf)
+            # Return value is zero if concatenation was successful
+            if return_value == 0:
+                # VERBOSE
+                print("Concatenated")
+                print(f"Length maf: {len(maf)}")
+                pass
+            # The returned negative int says how many species imped a
+            # concatenation.
+            elif return_value >= -self.max_del_species:
+                print("Concatenation failed but only one species imped.")
+                # input("Wait")
+                # If the current block or the next block are below threshold
+                # force concatenation even with deleting species.
+                try:
+                    # Test if the current maf block is to small
+
+                    # VERBOSE
+                    print(f"Size of current maf is to small {maf.len_no_gaps() < self.min_length_del}")
+                    print(f"Size of next maf is to small {next_maf.len_no_gaps() < self.min_length_del}")
+                    # print(f"Size of concatenated next maf is to small {self.concat_blocks(block_index + 1).len_no_gaps() < self.min_length_del}")
+
+                    if maf.len_no_gaps() < self.min_length_del:
+                        # VERBOSE
+                        print("Current block is to small concat anyways.")
+
+                        maf.concat(next_maf, max_del=self.max_del_species)
+                    # Test if the next maf block is to small
+                    elif next_maf.len_no_gaps() < self.min_length_del:
+                        # VERBOSE
+                        print("Next block is to small, look into future.")
+                        # input("Wait")
+                        append_html('<div style="margin-left:70px">\n')
+                        append_html('<h1>Look into the future</h1>\n')
+
+                        # Test if the next block can also not be extend to
+                        # become big enough.
+                        future_maf = self.concat_blocks(block_index)
+                        append_html('</div>\n')
+                        append_html('<h1>Back from the future</h1>\n')
+                        append_html(f"<h2>Iteration: {block_index}</h2>\n")
+                        append_html("<h3>Current Maf Block</h3>\n")
+                        maf.generate_html("/homes/biertruck/john/public_html/mview/", name="test_concat_parts")
+                        append_html("<h3>Next Maf Block</h3>\n")
+                        next_maf.generate_html("/homes/biertruck/john/public_html/mview/", name="test_concat_parts")
+                        append_html('<h3>Future block</h3>\n')
+                        future_maf.generate_html("/homes/biertruck/john/public_html/mview/", name="test_concat_parts")
+
+                        print("Back from the future.")
+                        if future_maf.len_no_gaps() < self.min_length_del:
+                            print("Even in the future block is to small. Force concatenation.")
+                            maf.concat(next_maf, max_del=self.max_del_species)
+                        else:
+                            return_value = -self.max_del_species - 1
+                            print("In the future block is big enough.")
+                        # VERBOSE
+                        # input("Wait")
+
+                    # If both blocks are sufficiently big keep current block and
+                    # proceed with concatenation with next block.
+                    else:
+                        return_value = -self.max_del_species - 1
+                # Catch EOF
+                except IndexError as e:
+                    if str(e) == "block index out of range":
+                        return_value = -self.max_del_species - 1
+                    else:
+                        raise
+
+            # Here concatenation ends. Either to many impeding species or
+            # impeding species is below self.max_del_species but both maf
+            # blocks, the current and the next are big enough.
+            if return_value < -self.max_del_species:
+                print("Concatination ends.")
+                if only_block:
+                    return maf
+
+                # Catches lower bound size
+                if (
+                    maf.size() - 1 < self.min_size
+                    and len(maf.block[1][-1].replace("-", "")) < self.min_length
+                ):
+                    maf = next_maf
+                    continue
+                if split:
+                    maf_list += maf.preprocess_block(self.max_len_no_split)
+                else:
+                    maf_list.append(maf)
+                print("Over write current maf")
+                print(f"Length maf: {len(maf)}")
+                print(f"Length next maf: {len(next_maf)}")
+                maf = next_maf
+
+        if only_block:
+            return maf
+        maf_list.append(maf)
+        return maf_list
