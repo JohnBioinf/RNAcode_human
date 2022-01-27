@@ -6,10 +6,13 @@ from copy import deepcopy
 import subprocess
 import gzip
 
+from collections import defaultdict
+import os
 
-def append_html(string):
+
+def append_html(string, name):
     """Do maf block."""
-    with open("/homes/biertruck/john/public_html/mview/test_concat_parts.html", "a", encoding="UTF-8") as f_handle:
+    with open(f"/homes/biertruck/john/public_html/mview/{name}.html", "a", encoding="UTF-8") as f_handle:
         f_handle.write(string)
 
 
@@ -52,6 +55,10 @@ class MafBlock:
         if self.is_empty():
             return "Empty maf\n\n"
         return "\n".join([" ".join(entry) for entry in self.block]) + "\n\n"
+
+    def sort(self):
+        """Sort maf block based on species name."""
+        self.block[:1] = sorted(self.block[:1], key=lambda x: x[1])
 
     def is_empty(self):
         """Test if object is empty."""
@@ -147,6 +154,7 @@ class MafBlock:
             with open(html_file_path, "a", encoding="UTF-8") as f_handle:
                 f_handle.write("<p>Empty Maf Block</p><br>")
             return
+        self.sort()
         return_code, out = self._system_call("command -v mview")
         if return_code != 0:
             raise SystemError("mview is not available")
@@ -305,12 +313,12 @@ class MafBlock:
         max_dist, discontious_species = self.is_continuous_with(other)
 
         if len(discontious_species) > max_del:
-            print(discontious_species)
+            # print(discontious_species)
             return -len(discontious_species)
 
         new_other = deepcopy(other)
 
-        # This deletes species if no species imped list should be empty.
+        # This deletes species if no species imped, list should be empty.
         self.delete_species(discontious_species)
         new_other.delete_species(discontious_species)
 
@@ -320,15 +328,14 @@ class MafBlock:
         other_species = set(new_other.get_all_species(no_target=True))
         self_species = set(self.get_all_species(no_target=True))
 
-        # VERBOSE
-        if other_species != self_species:
-            print(f"Add species to other: {self_species - other_species}")
-            print(f"Add species to self: {other_species - self_species}")
-            # print(other_species)
-            # print(self_species)
-
-        if max_dist != 0:
-            print(f"Add bridge length {max_dist}")
+        # # VERBOSE
+        # if other_species != self_species:
+        #     print(f"Add species to other: {self_species - other_species}")
+        #     print(f"Add species to self: {other_species - self_species}")
+        #     # print(other_species)
+        #     # print(self_species)
+        # if max_dist != 0:
+        #     print(f"Add bridge length {max_dist}")
 
         # Add new species to other
         for species in self_species - other_species:
@@ -391,8 +398,12 @@ class MafStream:
                 raise ValueError("all arguments must be set")
 
             setattr(self, arg, value)
-
+        # Saves off set for each block to make iteration faster.
+        # key: block_index val: off_set
         self.off_set_dic = {}
+        # Previous calculated blocks
+        # key: block_index val: MafBlock()
+        self.block_dic = {}
 
     def __iter__(self):
         """Iterat over maf blocks in file."""
@@ -411,6 +422,10 @@ class MafStream:
                     line = line.decode("UTF8")
                 except AttributeError:
                     pass
+                # EOF
+                if line == "":
+                    break
+
                 if line[0] == "a":
                     self.off_set_dic[block_index] = off_set
 
@@ -419,7 +434,8 @@ class MafStream:
                 if line != "\n":
                     maf.add(line)
                 else:
-                    yield block_index, maf
+                    maf.add_suffix(f"_block-index_{block_index}")
+                    yield maf
                     maf = MafBlock()
                     block_index += 1
 
@@ -452,7 +468,10 @@ class MafStream:
         with open_fn(self.path, read_arg) as maf_handle:
             maf_handle.seek(off_set)
             while True:
-                line = maf_handle.readline().decode("UTF8")
+                try:
+                    line = maf_handle.readline().decode("UTF8")
+                except AttributeError:
+                    pass
                 # EOF
                 if line == "":
                     if current_block_index < block_index:
@@ -472,10 +491,154 @@ class MafStream:
                     maf = MafBlock()
                     current_block_index += 1
 
+    def concat_blocks_trivial(self):
+        """Concatinate blocks without any deletion."""
+        maf = MafBlock()
+
+        for next_maf in self:
+            # Only first iteration
+            if maf.is_empty():
+                maf = next_maf
+                continue
+            return_value = maf.concat(next_maf)
+            if return_value != 0:
+                yield maf
+                maf = next_maf
+
+    def concat_blocks_with_deletion(self):
+        """Concatinate blocks with deletion."""
+        maf = MafBlock()
+
+        for next_maf in self.concat_blocks_trivial():
+            # Only first iteration
+            if maf.is_empty():
+                maf = next_maf
+                continue
+            if maf.len_no_gaps() < self.min_length_del and next_maf.len_no_gaps() < self.min_length_del:
+                smallest_size = min([maf.size(), next_maf.size()])
+                impeding_species = abs(maf.concat(next_maf))
+                ratio = impeding_species / smallest_size
+
+                maf.sort()
+                next_maf.sort()
+                os.remove("/homes/biertruck/john/public_html/mview/trivial_concat.html")
+                append_html("<h2>Current Maf</h2>\n", "trivial_concat")
+                maf.generate_html("/homes/biertruck/john/public_html/mview/", name="trivial_concat")
+                append_html("<h2>Next Maf</h2>\n", "trivial_concat")
+                next_maf.generate_html("/homes/biertruck/john/public_html/mview/", name="trivial_concat")
+                append_html(f"<h3>{impeding_species}</h3>\n", "trivial_concat")
+                append_html(f"<h3>{ratio}</h3>\n", "trivial_concat")
+
+                if ratio < 0.1:
+                    append_html(f"<h3>Force delete</h3>\n", "trivial_concat")
+                    maf.concat(next_maf, max_del=impeding_species)
+                    input("Wait")
+                    continue
+                else:
+                    input("Wait")
+
+
+            yield maf
+            maf = next_maf
+
     def concat_blocks(self, block_index, only_block=True, split=False):
         """Concatinate blocks starting with a specific block index."""
         maf_list = []
         maf = MafBlock()
+
+        # might be set if look into the future becomes reality
+        calc_block_index = -1
+
+        for block_index, next_maf in self.iterate_from(block_index):
+            next_maf.add_suffix(f"_block-index_{block_index}")
+
+            # This can be triggered if new block starts and the current index
+            # was already calculated
+            if block_index in self.block_dic and maf.is_empty():
+                calc_block_index, maf = self.block_dic[block_index]
+                if only_block:
+                    return calc_block_index, maf
+                continue
+
+            # Only first iteration
+            if maf.is_empty():
+                maf = next_maf
+                continue
+
+            if block_index < calc_block_index:
+                continue
+
+            return_value = maf.concat(next_maf)
+            # Return value is zero if concatenation was successful
+            if return_value == 0:
+                pass
+            # The returned negative int says how many species imped a
+            # concatenation.
+            elif return_value >= -self.max_del_species:
+                # If the current block or the next block are below threshold
+                # force concatenation even with deleting species.
+                try:
+                    # Test if the current maf block is to small
+                    if maf.len_no_gaps() < self.min_length_del:
+                        maf.concat(next_maf, max_del=self.max_del_species)
+                    # Test if the next maf block is to small
+                    elif next_maf.len_no_gaps() < self.min_length_del:
+                        # Test if the next block can also not be extend to
+                        # become big enough.
+                        end_block_index, future_maf = self.concat_blocks(block_index)
+                        # Safe future maf if force concatenation is triggered in
+                        # does not need to be calculated again.
+                        if future_maf.len_no_gaps() < self.min_length_del:
+                            maf.concat(next_maf, max_del=self.max_del_species)
+                        else:
+                            # Safe future maf if force concatenation is not
+                            # triggered. Does not need to be calculated again.
+                            self.block_dic[block_index] = end_block_index, future_maf
+                            return_value = -self.max_del_species - 1
+
+                    # If both blocks are sufficiently big keep current block and
+                    # proceed with concatenation with next block.
+                    else:
+                        return_value = -self.max_del_species - 1
+                # Catch EOF
+                except IndexError as e:
+                    if str(e) == "block index out of range":
+                        return_value = -self.max_del_species - 1
+                    else:
+                        raise
+
+            # Here concatenation ends. Either to many impeding species or
+            # impeding species is below self.max_del_species but both maf
+            # blocks, the current and the next are big enough.
+            if return_value < -self.max_del_species:
+                if only_block:
+                    return block_index, maf
+                # Catches lower bound size
+                if (
+                    maf.size() - 1 < self.min_size
+                    and len(maf.block[1][-1].replace("-", "")) < self.min_length
+                ):
+                    maf = next_maf
+                    continue
+                if split:
+                    maf_list += maf.preprocess_block(self.max_len_no_split)
+                else:
+                    maf_list.append(maf)
+                if block_index in self.block_dic:
+                    calc_block_index, maf = self.block_dic[block_index]
+                else:
+                    maf = next_maf
+
+        if only_block:
+            return block_index, maf
+        maf_list.append(maf)
+        return block_index, maf_list
+
+    def concat_blocks_old(self, block_index, only_block=True, split=False):
+        """Concatinate blocks starting with a specific block index."""
+        maf_list = []
+        maf = MafBlock()
+        imped_dic = defaultdict(lambda: 0)
 
         for block_index, next_maf in self.iterate_from(block_index):
             next_maf.add_suffix(f"_block-index_{block_index}")
@@ -486,6 +649,7 @@ class MafStream:
                 continue
 
             return_value = maf.concat(next_maf)
+            imped_dic[return_value] += 1
             # Return value is zero if concatenation was successful
             if return_value == 0:
                 pass
@@ -540,6 +704,10 @@ class MafStream:
 
         if only_block:
             return maf
+
+        with open("./bar_data_imped_chr10.csv", "w", encoding="UTF-8") as f_handle:
+            f_handle.write("\n".join([f"{n},{s}" for n, s in imped_dic.items()]))
+
         maf_list.append(maf)
         return maf_list
 
@@ -548,11 +716,32 @@ class MafStream:
         maf_list = []
         maf = MafBlock()
 
+        # might be set if look into the future becomes reality
+        calc_block_index = -1
+
         for block_index, next_maf in self.iterate_from(block_index):
             next_maf.add_suffix(f"_block-index_{block_index}")
-            # VERBOSE
-            # if block_index > 10:
-            #     break
+
+            if block_index > 56:
+                break
+            append_html(f"<h2>Iteration: {block_index}</h2>\n")
+
+            # This can be triggered if new block starts and the current index
+            # was already calculated
+            if block_index in self.block_dic and maf.is_empty():
+                calc_block_index, maf = self.block_dic[block_index]
+                if only_block:
+                    append_html("<h3>Block was already calculated.</h3>\n")
+                    return calc_block_index, maf
+                append_html("<h3>Start Jump ...</h3>\n")
+                append_html("<h3>Future Maf Block</h3>\n")
+                maf.generate_html("/homes/biertruck/john/public_html/mview/", name="test_concat_parts")
+                continue
+
+            if block_index < calc_block_index:
+                append_html("<h3>... still jumping ...</h3>\n")
+                continue
+
             print()
             print(f"Iteration: {block_index}")
             print(f"Length maf: {len(maf)}")
@@ -561,7 +750,6 @@ class MafStream:
             print(f"Length next maf: {len(next_maf)}")
             for line in next_maf.block[1:]:
                 print(f"{line[1]}: {len(line[-1])}")
-            append_html(f"<h2>Iteration: {block_index}</h2>\n")
             append_html("<h3>Current Maf Block</h3>\n")
             maf.generate_html("/homes/biertruck/john/public_html/mview/", name="test_concat_parts")
             append_html("<h3>Next Maf Block</h3>\n")
@@ -576,12 +764,14 @@ class MafStream:
             # Return value is zero if concatenation was successful
             if return_value == 0:
                 # VERBOSE
+                append_html("<h4>Concatenation was successful</h4>\n")
                 print("Concatenated")
                 print(f"Length maf: {len(maf)}")
                 pass
             # The returned negative int says how many species imped a
             # concatenation.
             elif return_value >= -self.max_del_species:
+                append_html("<h4>Concatenation failed but only one species imped.</h4>\n")
                 print("Concatenation failed but only one species imped.")
                 # input("Wait")
                 # If the current block or the next block are below threshold
@@ -596,20 +786,22 @@ class MafStream:
 
                     if maf.len_no_gaps() < self.min_length_del:
                         # VERBOSE
+                        append_html("<h4>Current block is to small concat anyways.</h4>\n")
                         print("Current block is to small concat anyways.")
 
                         maf.concat(next_maf, max_del=self.max_del_species)
                     # Test if the next maf block is to small
                     elif next_maf.len_no_gaps() < self.min_length_del:
                         # VERBOSE
+                        append_html("<h4>Next block is to small, look into future.</h4>\n")
                         print("Next block is to small, look into future.")
                         # input("Wait")
                         append_html('<div style="margin-left:70px">\n')
-                        append_html('<h1>Look into the future</h1>\n')
 
                         # Test if the next block can also not be extend to
                         # become big enough.
-                        future_maf = self.concat_blocks(block_index)
+                        end_block_index, future_maf = self.concat_blocks_verbose(block_index)
+                        # VERBOSE
                         append_html('</div>\n')
                         append_html('<h1>Back from the future</h1>\n')
                         append_html(f"<h2>Iteration: {block_index}</h2>\n")
@@ -623,9 +815,15 @@ class MafStream:
                         print("Back from the future.")
                         if future_maf.len_no_gaps() < self.min_length_del:
                             print("Even in the future block is to small. Force concatenation.")
+                            append_html("<h4>Even in the future block is to small. Force concatenation.</h4>\n")
                             maf.concat(next_maf, max_del=self.max_del_species)
                         else:
+                            # Safe future maf if force concatenation is not
+                            # triggered. Does not need to be calculated again.
+                            self.block_dic[block_index] = end_block_index, future_maf
                             return_value = -self.max_del_species - 1
+                            append_html(f"<h4>Keys block_dic = {list(self.block_dic.keys())}</h4>\n")
+                            append_html("<h4>In the future block is big enough.</h4>\n")
                             print("In the future block is big enough.")
                         # VERBOSE
                         # input("Wait")
@@ -640,15 +838,17 @@ class MafStream:
                         return_value = -self.max_del_species - 1
                     else:
                         raise
+            else:
+                append_html("<h4>Concatenation failed to many species imped.</h4>\n")
 
             # Here concatenation ends. Either to many impeding species or
             # impeding species is below self.max_del_species but both maf
             # blocks, the current and the next are big enough.
             if return_value < -self.max_del_species:
                 print("Concatination ends.")
+                append_html("<h2>Concatination ends.</h4>\n")
                 if only_block:
-                    return maf
-
+                    return block_index, maf
                 # Catches lower bound size
                 if (
                     maf.size() - 1 < self.min_size
@@ -663,9 +863,15 @@ class MafStream:
                 print("Over write current maf")
                 print(f"Length maf: {len(maf)}")
                 print(f"Length next maf: {len(next_maf)}")
-                maf = next_maf
+                if block_index in self.block_dic:
+                    append_html("<h3>Start Jump ...</h3>\n")
+                    calc_block_index, maf = self.block_dic[block_index]
+                    append_html("<h3>Future Maf Block</h3>\n")
+                    maf.generate_html("/homes/biertruck/john/public_html/mview/", name="test_concat_parts")
+                else:
+                    maf = next_maf
 
         if only_block:
-            return maf
+            return block_index, maf
         maf_list.append(maf)
-        return maf_list
+        return block_index, maf_list

@@ -2,7 +2,6 @@
 """Get answer of Life, the Universe and Everything."""
 
 from MafBlock import MafStream
-from MafBlock import MafBlock
 
 # Minimal size and length that a maf block must have to be processed by RNAcode.
 # Absolute lower boundaries
@@ -20,59 +19,10 @@ MAX_DEL_SPECIES = 1
 MAX_LEN_NO_SPLIT = 3000
 
 
-def concat_split(maf_file_path):
-    """Get answer of Life, the Universe and Everything."""
-    maf = MafBlock()
-    maf_list = []
-
-    maf_stream = MafStream(maf_file_path)
-    for block_index, next_maf in maf_stream:
-        next_maf.add_suffix(f"block-index_{block_index}")
-        # Only first iteration
-        if maf.is_empty():
-            maf = next_maf
-            continue
-        ret_val = maf.concat(next_maf)
-        # Return value is zero if concatenation was successful
-        if ret_val == 0:
-            pass
-        # The returned negative int says how many species imped a concatenation.
-        elif ret_val >= -MAX_DEL_SPECIES:
-            # If the current block or the next block are below threshold force
-            # concatenation even with deleting species.
-            try:
-                if len(maf) < MIN_LENGTH_DEL or len(maf_stream.concat_blocks(block_index + 1)) < MIN_LENGTH_DEL:
-                    maf.concat(next_maf, max_del=MAX_DEL_SPECIES)
-            except IndexError as e:
-                # Catch EOF
-                if str(e) == "block index out of range":
-                    ret_val = -MAX_DEL_SPECIES - 1
-                else:
-                    raise
-            # If both blocks are sufficiently big keep current block and proceed
-            # with concatenation with next block.
-            else:
-                ret_val = -MAX_DEL_SPECIES - 1
-
-        # Here concatenation ends. Either to many impeding species or impeding
-        # species is below MAX_DEL_SPECIES but both maf blocks, the current and
-        # the next are big enough.
-        if ret_val < -MAX_DEL_SPECIES:
-            # Catches lower bound size
-            if (
-                maf.size() - 1 < MIN_SIZE
-                and len(maf.block[1][-1].replace("-", "")) < MIN_LENGTH
-            ):
-                maf = next_maf
-                continue
-            # Cut blocks
-            maf_list += maf.preprocess_block(MAX_LEN_NO_SPLIT)
-            maf = next_maf
-
-
 def main():
     """Get answer of Life, the Universe and Everything."""
     maf_file_path = "/scr/k61san2/john/rnacode_human_CS/multiz100way/chr10_GL383545v1_alt/chr10_GL383545v1_alt.maf.gz"
+
     maf_stream = MafStream(
         path=maf_file_path,
         min_length_del=MIN_LENGTH_DEL,
@@ -81,9 +31,37 @@ def main():
         min_length=MIN_LENGTH,
         max_len_no_split=MAX_LEN_NO_SPLIT,
     )
-    maf_list = maf_stream.concat_blocks(0, only_block=False, split=True)
-    print(len(maf_list))
+
+    for maf in maf_stream.concat_blocks_with_deletion():
+        print(maf)
 
 
 if __name__ == "__main__":
     main()
+
+"""
+    for _block_index, block in maf_stream.iterate_from(0):
+        block.generate_html("/homes/biertruck/john/public_html/mview/", name="orginal_maf")
+
+maf_file_unzip_path = "/scr/k61san2/john/rnacode_human_CS/multiz100way/chr10_GL383545v1_alt/chr10_GL383545v1_alt.maf"
+with open(maf_file_unzip_path, "w", encoding="UTF-8") as f_handle:
+    with gzip.open(maf_file_path, "rb") as maf_handle:
+        f_handle.write(maf_handle.read().decode("UTF8"))
+
+    with open("/scr/k61san2/john/rnacode_human_CS/multiz100way/chr10_GL383545v1_alt/test_new.maf", "w", encoding="UTF-8") as f_handle:
+        for maf in maf_list:
+            maf.sort()
+            # maf.generate_html("/homes/biertruck/john/public_html/mview/", name="concat_maf_old")
+            f_handle.write(str(maf))
+
+    end_block_index, maf_list = maf_stream.concat_blocks_verbose(0, only_block=False, split=True)
+    with open("/scr/k61san2/john/rnacode_human_CS/multiz100way/chr10_GL383545v1_alt/test_verbose.maf", "w", encoding="UTF-8") as f_handle:
+        for maf in maf_list:
+            maf.sort()
+            f_handle.write(str(maf))
+    end_block_index, maf_list = maf_stream.concat_blocks(0, only_block=False, split=True)
+    with open("/scr/k61san2/john/rnacode_human_CS/multiz100way/chr10_GL383545v1_alt/test.maf", "w", encoding="UTF-8") as f_handle:
+        for maf in maf_list:
+            maf.sort()
+            f_handle.write(str(maf))
+"""
