@@ -2,6 +2,8 @@
 """Get answer of Life, the Universe and Everything."""
 
 from MafBlock import MafStream
+import sys
+import os
 
 # Minimal size and length that a maf block must have to be processed by RNAcode.
 # Absolute lower boundaries
@@ -18,10 +20,20 @@ MAX_DEL_SPECIES = 1
 # Parameter for splitting
 MAX_LEN_NO_SPLIT = 3000
 
+# Big block size
+BB_SIZE = 1000
+
 
 def main():
     """Get answer of Life, the Universe and Everything."""
-    maf_file_path = "/scr/k61san2/john/rnacode_human_CS/multiz100way/chr10_GL383545v1_alt/chr10_GL383545v1_alt.maf.gz"
+    maf_file_path = sys.argv[1]
+    if not os.path.isfile(maf_file_path):
+        print(f"Maf file {maf_file_path} does not exist!")
+        sys.exit(1)
+
+    split_dir = os.path.join(os.path.split(maf_file_path)[0], "big_blocks")
+    if not os.path.isdir(split_dir):
+        os.mkdir(split_dir)
 
     maf_stream = MafStream(
         path=maf_file_path,
@@ -32,8 +44,18 @@ def main():
         max_len_no_split=MAX_LEN_NO_SPLIT,
     )
 
-    for maf in maf_stream.concat_blocks_with_deletion():
-        print(maf)
+    bb_num = 1
+    maf_counter = 0
+    f_handle = open(os.path.join(split_dir, f"big_block_{bb_num}.maf"), "w", encoding="UTF-8")
+    for maf in maf_stream.discard_stream():
+        maf_counter += 1
+        if maf_counter > BB_SIZE:
+            bb_num += 1
+            f_handle.close()
+            f_handle = open(os.path.join(split_dir, f"big_block_{bb_num}.maf"), "w", encoding="UTF-8")
+
+        f_handle.write(str(maf))
+    f_handle.close()
 
 
 if __name__ == "__main__":

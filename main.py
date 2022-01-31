@@ -32,15 +32,8 @@ DATA_DIR = parameters["DATA_DIR"]
 MULTIZ100WAY_WEB_FTP = parameters["MULTIZ100WAY_WEB_FTP"]
 MULTIZ20WAY_WEB_FTP = parameters["MULTIZ20WAY_WEB_FTP"]
 
-# minimal dimension for a maf block
-MIN_SIZE = 3
-MIN_LENGTH = 30
+# Parameters for preprocessing can be found stream_chromosome.py
 P_THRESHOLD = 0.01
-
-# in nt
-# MAX_LEN_NO_SPLIT = 500
-MAX_LEN_NO_SPLIT = 3000
-
 NUM_CPUS = 20
 
 MULTIZ100WAY_DIR = DATA_DIR + "/multiz100way/"
@@ -153,29 +146,20 @@ def init_work_dir(dir_path, ftp_url):
 def compute_genome_alignment_big_blocks(genome_alignment_dir):
     """Compute maf file."""
     print("Concating and spliting genome.")
-    start_time_rnacode = datetime.now()
-    call = f"./ConcatSplit_parallel.sh {genome_alignment_dir} {MIN_SIZE} {MIN_LENGTH} {MAX_LEN_NO_SPLIT} {NUM_CPUS}"
-    out = system_call(call)
-    if out[0] != 0:
-        eprint("Error ConcatSplit parallel")
-        eprint(out[1])
-    print(f"Finished preprocessing after {datetime.now() - start_time_rnacode}.")
-    # count number of blocks
-    for chromosome in os.listdir(genome_alignment_dir):
-        if not os.path.isdir(genome_alignment_dir + "/" + chromosome):
-            continue
-        # if chromosome != "chr19_GL383575v2_alt":  # noqa: SC100
-        #     continue
-        print(chromosome, flush=True)
-        chromosome_dir_path = f"{genome_alignment_dir}/{chromosome}/"
+    start_time_maf_stream = datetime.now()
+    call_str = f"./stream_chromosome_parallel.sh {genome_alignment_dir} {NUM_CPUS}"
+    completed_process = subprocess.run(call_str.split(), capture_output=True, text=True)
+    if completed_process.returncode != 0:
+        eprint(completed_process.stderr)
+        raise SystemError("Maf stream parallel failed!")
+    print(f"Finished preprocessing after {datetime.now() - start_time_maf_stream}.")
 
-        start_time_chromosome = datetime.now()
-        call = f"./RNAcode_parallel.sh {chromosome_dir_path} big_blocks"
-        out = system_call(call)
-        if out[0] != 0:
-            eprint("Error parallel")
-            eprint(out[1])
-        print(f"Finished chromosom after {datetime.now() - start_time_chromosome}.")
+    start_time_rnacode = datetime.now()
+    call_str = f"./RNAcode_parallel.sh {genome_alignment_dir} big_blocks {NUM_CPUS}"
+    completed_process = subprocess.run(call_str.split(), capture_output=True, text=True)
+    if completed_process.returncode != 0:
+        eprint(completed_process.stderr)
+        raise SystemError("RNAcode parallel failed!")
 
     print(
         f"Finished computing genome allignment after {datetime.now() - start_time_rnacode}."
@@ -290,7 +274,7 @@ def check_failed_and_retry(genome_alignment_dir):
 
         build_single_blocks(chromosome_dir_path, failed_twice)
         print("Compute single blocks.")
-        call = f"./parallel.sh {chromosome_dir_path} single_blocks"
+        call = f"./RNAcode_parallel.sh {chromosome_dir_path} single_blocks {NUM_CPUS}"
         out = system_call(call)
         if out[0] != 0:
             eprint("Error parallel")
@@ -476,10 +460,10 @@ def hss_to_bed_line(segments):
 
 def full_pipeline(work_dir, web_ftp):
     """Full Piepline."""
-    init_work_dir(work_dir, web_ftp)
+    # init_work_dir(work_dir, web_ftp)
     compute_genome_alignment_big_blocks(work_dir)
-    check_failed_and_retry(work_dir)
-    build_bed(work_dir)
+    # check_failed_and_retry(work_dir)
+    # build_bed(work_dir)
 
 
 def main():
