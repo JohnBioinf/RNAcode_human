@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -e
+
 genome_alignment_dir=$1
 num_cpus=$2
 

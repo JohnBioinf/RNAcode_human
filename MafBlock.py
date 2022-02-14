@@ -61,8 +61,6 @@ class MafBlock:
         """Show the maf-block formatted like a maf-file."""
         if self.is_empty():
             return "Empty maf\n\n"
-        if self.block_index_list != []:
-            self.add_suffix(f"_bil_{'-'.join(map(str, self.block_index_list))}")
         return "\n".join([" ".join(entry) for entry in self.block]) + "\n\n"
 
     def add_index(self, index_object):
@@ -87,7 +85,7 @@ class MafBlock:
         """Get the number of aligned sequences."""
         if self.is_empty():
             return 0
-        return len(self.block)
+        return len(self.block) - 1
 
     def __len__(self):
         """Get the length of target sequence with gaps."""
@@ -102,6 +100,10 @@ class MafBlock:
             return 0
         else:
             return len(self.block[1][-1].replace("-", ""))
+
+    def get_target(self):
+        """Get name of target species."""
+        return self.block[1][1]
 
     def coordinates(self):
         """Return start and end of maf-block."""
@@ -287,14 +289,11 @@ class MafBlock:
             continous. And a list of species which are discontinous.
         :rtype: (int, list)
         """
-        if self.is_empty():
-            return False, -1
-
         if int(self.block[1][2]) > int(other.block[1][2]):
             raise ValueError("Maf block self is after maf block other")
 
-        other_species = set(other.get_all_species(no_target=True))
-        self_species = set(self.get_all_species(no_target=True))
+        other_species = set(other.get_all_species())
+        self_species = set(self.get_all_species())
 
         max_dist = 0
         discontious_species = []
@@ -332,6 +331,9 @@ class MafBlock:
         :rtype: int
         """
         max_dist, discontious_species = self.is_continuous_with(other)
+
+        if self.get_target() in discontious_species:
+            return -float("inf")
 
         if len(discontious_species) > max_del:
             # print(discontious_species)
@@ -457,7 +459,7 @@ class MafStream:
             open_fn = gzip.open
             read_arg = "rb"
         else:
-            open_fn = gzip.open
+            open_fn = open
             read_arg = "r"
         block_index = 0
         off_set = 0
@@ -494,7 +496,7 @@ class MafStream:
             open_fn = gzip.open
             read_arg = "rb"
         else:
-            open_fn = gzip.open
+            open_fn = open
             read_arg = "r"
 
         if block_index in self.off_set_dic:
@@ -546,6 +548,7 @@ class MafStream:
             if maf.is_empty():
                 maf = next_maf
                 continue
+
             return_value = maf.concat(next_maf)
             if return_value != 0:
                 yield maf
@@ -596,9 +599,11 @@ class MafStream:
     def discard_stream(self):
         """Sort out small mafs and trim mafs."""
         for maf in self.split_stream():
-            if maf.size() - 1 < self.min_size and maf.len_no_gaps() < self.min_length:
+            if maf.size() - 1 < self.min_size or maf.len_no_gaps() < self.min_length:
                 continue
             maf.clean()
+            if maf.size() - 1 < self.min_size or maf.len_no_gaps() < self.min_length:
+                continue
             yield maf
 
     def concat_blocks(self, block_index, only_block=True, split=False):

@@ -162,7 +162,7 @@ def compute_genome_alignment_big_blocks(genome_alignment_dir):
         raise SystemError("RNAcode parallel failed!")
 
     print(
-        f"Finished computing genome allignment after {datetime.now() - start_time_rnacode}."
+        f"Finished RNAcode analysis after {datetime.now() - start_time_rnacode}."
     )
 
 

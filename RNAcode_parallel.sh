@@ -5,9 +5,9 @@ grouping=$2
 num_cpus=$3
 
 if [[ "$grouping" == "big_blocks" ]]; then
-    reg_ex='big_block_[0-9]*-s_[0-9]*\.maf'
-elif [[ "$grouping" == "single_blocks" ]]; then
     reg_ex='big_block_[0-9]*\.maf'
+elif [[ "$grouping" == "single_blocks" ]]; then
+    reg_ex='big_block_[0-9]*-s_[0-9]*\.maf'
 else
     echo "Error grouping: $grouping undefined."
 fi

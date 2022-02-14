@@ -103,3 +103,4 @@ listdir
 intervaltree
 getitem
 readline
+dirname

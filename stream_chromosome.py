@@ -4,6 +4,7 @@
 from MafBlock import MafStream
 import sys
 import os
+import json
 
 # Minimal size and length that a maf block must have to be processed by RNAcode.
 # Absolute lower boundaries
@@ -31,9 +32,17 @@ def main():
         print(f"Maf file {maf_file_path} does not exist!")
         sys.exit(1)
 
+    chromosome_dir = os.path.dirname(maf_file_path)
+    chromosome_name = os.path.basename(maf_file_path).split(".")[0]
+
     split_dir = os.path.join(os.path.split(maf_file_path)[0], "big_blocks")
     if not os.path.isdir(split_dir):
         os.mkdir(split_dir)
+    else:
+        for block_file in os.listdir(split_dir):
+            if not os.path.isfile(os.path.join(split_dir, block_file)):
+                continue
+            os.remove(os.path.join(split_dir, block_file))
 
     maf_stream = MafStream(
         path=maf_file_path,
@@ -46,27 +55,35 @@ def main():
 
     bb_num = 1
     maf_counter = 0
+    block_dic = {}
     f_handle = open(os.path.join(split_dir, f"big_block_{bb_num}.maf"), "w", encoding="UTF-8")
     for maf in maf_stream.discard_stream():
         maf_counter += 1
         if maf_counter > BB_SIZE:
             bb_num += 1
+            maf_counter = 0
             f_handle.close()
             f_handle = open(os.path.join(split_dir, f"big_block_{bb_num}.maf"), "w", encoding="UTF-8")
+        small_target_name = f"{chromosome_name}_{maf_counter}_{bb_num}"
+        block_dic[small_target_name] = maf.block_index_list
+        maf.block[1][1] = small_target_name
 
         f_handle.write(str(maf))
+
     f_handle.close()
+    with open(os.path.join(chromosome_dir, "block_dic.json"), "w", encoding="UTF-8") as f_handle:
+        json.dump(block_dic, f_handle)
 
 
 if __name__ == "__main__":
     main()
 
+
 """
     for _block_index, block in maf_stream.iterate_from(0):
         block.generate_html("/homes/biertruck/john/public_html/mview/", name="orginal_maf")
-
-maf_file_unzip_path = "/scr/k61san2/john/rnacode_human_CS/multiz100way/chr10_GL383545v1_alt/chr10_GL383545v1_alt.maf"
-with open(maf_file_unzip_path, "w", encoding="UTF-8") as f_handle:
+    maf_file_unzip_path = "/scr/k61san2/john/rnacode_human_CS/multiz100way/chr10_GL383545v1_alt/chr10_GL383545v1_alt.maf"
+    with open(maf_file_unzip_path, "w", encoding="UTF-8") as f_handle:
     with gzip.open(maf_file_path, "rb") as maf_handle:
         f_handle.write(maf_handle.read().decode("UTF8"))
 
