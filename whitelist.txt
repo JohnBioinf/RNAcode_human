@@ -32,6 +32,7 @@ Acode
 ret
 imped
 preprocessing
+workdir
 
 Bioinf
 taxid

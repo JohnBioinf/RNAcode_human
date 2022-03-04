@@ -287,7 +287,7 @@ def check_failed_and_retry(genome_alignment_dir):
     )
 
 
-def build_segments(rnacode_res, chromosome):
+def build_segments(rnacode_res, chromosome, list_maf_blocks=True):
     """Build segments from rnacode results as intermediate structure to bed line."""
     block_pat = re.compile(r"block_index-[0-9]+")
     segments = []
@@ -295,7 +295,10 @@ def build_segments(rnacode_res, chromosome):
         start = int(line[7]) - 1
         end = int(line[8])
         hss_id = [line[0]]
-        maf_block = [block_pat.findall(line[6])[0]]
+        if list_maf_blocks:
+            maf_block = [block_pat.findall(line[6])[0]]
+        else:
+            maf_block = ""
         strand = line[1]
         p_val = float(line[-1])
 

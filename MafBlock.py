@@ -539,26 +539,36 @@ class MafStream:
                     maf = MafBlock()
                     current_block_index += 1
 
-    def concat_blocks_trivial(self):
+    def concat_blocks_trivial(self, position=()):
         """Concatinate blocks without any deletion."""
         maf = MafBlock()
+        overlap_found = False
 
         for next_maf in self:
             # Only first iteration
             if maf.is_empty():
                 maf = next_maf
                 continue
+            if position != ():
+                start_maf, end_maf = maf.coordinates()
+                # (StartA <= EndB) and (EndA >= StartB)
+                if position[0] <= end_maf and position[1] >= start_maf:
+                    overlap_found = True
+                elif overlap_found:
+                    break
+                else:
+                    continue
 
             return_value = maf.concat(next_maf)
             if return_value != 0:
                 yield maf
                 maf = next_maf
 
-    def concat_blocks_with_deletion(self):
+    def concat_blocks_with_deletion(self, position=()):
         """Concatinate blocks with deletion."""
         maf = MafBlock()
 
-        for next_maf in self.concat_blocks_trivial():
+        for next_maf in self.concat_blocks_trivial(position=()):
             # Only first iteration
             if maf.is_empty():
                 maf = next_maf
@@ -578,9 +588,9 @@ class MafStream:
             yield maf
             maf = next_maf
 
-    def split_stream(self):
+    def split_stream(self, position=()):
         """Split blocks with sliding window."""
-        for maf in self.concat_blocks_with_deletion():
+        for maf in self.concat_blocks_with_deletion(position=()):
             if len(maf) < self.max_len_no_split:
                 yield maf
                 continue
@@ -596,9 +606,9 @@ class MafStream:
                 if end_reached:
                     break
 
-    def discard_stream(self):
+    def discard_stream(self, position=()):
         """Sort out small mafs and trim mafs."""
-        for maf in self.split_stream():
+        for maf in self.split_stream(position=()):
             if maf.size() - 1 < self.min_size or maf.len_no_gaps() < self.min_length:
                 continue
             maf.clean()
