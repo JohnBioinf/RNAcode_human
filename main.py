@@ -194,9 +194,7 @@ def find_failed_twice(chromosome_dir_path, block_type="big_block"):
     """Check parallel log for double fails."""
     if block_type == "big_block":
         reg_pat = re.compile(r"big_block_[0-9]+\.maf")
-        # TODO
-        # log_file = f"{chromosome_dir_path}/big_blocks_parallel.log"
-        log_file = f"{chromosome_dir_path}/parallel.log"
+        log_file = f"{chromosome_dir_path}/big_blocks_parallel.log"
     elif block_type == "single_block":
         reg_pat = re.compile(r"big_block_[0-9]+-s_[0-9]+\.maf")
         log_file = f"{chromosome_dir_path}/single_blocks_parallel.log"
@@ -464,9 +462,9 @@ def hss_to_bed_line(segments):
 def full_pipeline(work_dir, web_ftp):
     """Full Piepline."""
     # init_work_dir(work_dir, web_ftp)
-    compute_genome_alignment_big_blocks(work_dir)
-    # check_failed_and_retry(work_dir)
-    # build_bed(work_dir)
+    # compute_genome_alignment_big_blocks(work_dir)
+    check_failed_and_retry(work_dir)
+    build_bed(work_dir)
 
 
 def main():
