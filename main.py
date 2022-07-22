@@ -287,14 +287,13 @@ def check_failed_and_retry(genome_alignment_dir):
 
 def build_segments(rnacode_res, chromosome, list_maf_blocks=True):
     """Build segments from rnacode results as intermediate structure to bed line."""
-    block_pat = re.compile(r"block_index-[0-9]+")
     segments = []
     for line in rnacode_res:
         start = int(line[7]) - 1
         end = int(line[8])
         hss_id = [line[0]]
         if list_maf_blocks:
-            maf_block = [block_pat.findall(line[6])[0]]
+            maf_block = [line[6]]
         else:
             maf_block = ""
         strand = line[1]
@@ -463,7 +462,7 @@ def full_pipeline(work_dir, web_ftp):
     """Full Piepline."""
     # init_work_dir(work_dir, web_ftp)
     # compute_genome_alignment_big_blocks(work_dir)
-    check_failed_and_retry(work_dir)
+    # check_failed_and_retry(work_dir)
     build_bed(work_dir)
 
 

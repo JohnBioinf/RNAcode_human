@@ -462,7 +462,6 @@ class MafStream:
             open_fn = open
             read_arg = "r"
         block_index = 0
-        off_set = 0
         maf = MafBlock()
         with open_fn(self.path, read_arg) as maf_handle:
             for line in maf_handle:
@@ -474,11 +473,6 @@ class MafStream:
                 if line == "":
                     break
 
-                if line[0] == "a":
-                    self.off_set_dic[block_index] = off_set
-
-                off_set += len(line)
-
                 if line != "\n":
                     maf.add(line)
                 else:
@@ -487,7 +481,7 @@ class MafStream:
                     maf = MafBlock()
                     block_index += 1
 
-    def iterate_from(self, block_index):
+    def iterate_from_use_offset(self, block_index):
         """Iterate over maf blocks starting with specific block index.
 
         The attribute off_set_dic is used to make jumps.
@@ -503,10 +497,10 @@ class MafStream:
             current_block_index = block_index
             off_set = self.off_set_dic[current_block_index]
         # If block index is not in dic get highest block index
-        # This should be most of the time used maybe this a list would be
-        # quicker compared to dic?
+        # This should be used most of the time. Maybe a list would be quicker
+        # compared to dic?
         elif len(self.off_set_dic) == 0:
-            current_block_index = block_index
+            current_block_index = 0
             off_set = 0
         else:
             current_block_index = sorted(list(self.off_set_dic.keys()))[-1]
@@ -534,41 +528,74 @@ class MafStream:
                 if line != "\n":
                     maf.add(line)
                 else:
+                    maf.add_index(current_block_index)
                     if current_block_index >= block_index:
-                        yield current_block_index, maf
+                        yield maf
                     maf = MafBlock()
                     current_block_index += 1
 
-    def concat_blocks_trivial(self, position=()):
+    def iterate_from(self, block_index):
+        """Iterate over maf blocks starting with specific block index."""
+        if self.path.endswith("gz"):
+            open_fn = gzip.open
+            read_arg = "rb"
+        else:
+            open_fn = open
+            read_arg = "r"
+
+        current_block_index = 0
+        maf = MafBlock()
+        with open_fn(self.path, read_arg) as maf_handle:
+            while True:
+                try:
+                    line = maf_handle.readline().decode("UTF8")
+                except AttributeError:
+                    pass
+                # EOF
+                if line == "":
+                    if current_block_index < block_index:
+                        raise IndexError("block index out of range")
+                    break
+
+                if line != "\n":
+                    maf.add(line)
+                else:
+                    maf.add_index(current_block_index)
+                    if current_block_index >= block_index:
+                        yield maf
+                    maf = MafBlock()
+                    current_block_index += 1
+
+    def concat_blocks_trivial(self, position=(), index_range=(0, float("inf"))):
         """Concatinate blocks without any deletion."""
         maf = MafBlock()
-        overlap_found = False
 
-        for next_maf in self:
+        for next_maf in self.iterate_from(index_range[0]):
+            print("A")
             # Only first iteration
             if maf.is_empty():
                 maf = next_maf
                 continue
             if position != ():
                 start_maf, end_maf = maf.coordinates()
-                # (StartA <= EndB) and (EndA >= StartB)
-                if position[0] <= end_maf and position[1] >= start_maf:
-                    overlap_found = True
-                elif overlap_found:
-                    break
-                else:
+                if end_maf < position[0]:
                     continue
+                if start_maf > position[1]:
+                    break
+            if maf.block_index_list[0] > index_range[1]:
+                yield maf
+                break
 
             return_value = maf.concat(next_maf)
             if return_value != 0:
                 yield maf
                 maf = next_maf
 
-    def concat_blocks_with_deletion(self, position=()):
+    def concat_blocks_with_deletion(self, position=(), index_range=(0, float("inf"))):
         """Concatinate blocks with deletion."""
         maf = MafBlock()
 
-        for next_maf in self.concat_blocks_trivial(position=()):
+        for next_maf in self.concat_blocks_trivial(position=position, index_range=index_range):
             # Only first iteration
             if maf.is_empty():
                 maf = next_maf
@@ -588,9 +615,9 @@ class MafStream:
             yield maf
             maf = next_maf
 
-    def split_stream(self, position=()):
+    def split_stream(self, position=(), index_range=(0, float("inf"))):
         """Split blocks with sliding window."""
-        for maf in self.concat_blocks_with_deletion(position=()):
+        for maf in self.concat_blocks_with_deletion(position=position, index_range=index_range):
             if len(maf) < self.max_len_no_split:
                 yield maf
                 continue
@@ -606,9 +633,9 @@ class MafStream:
                 if end_reached:
                     break
 
-    def discard_stream(self, position=()):
+    def discard_stream(self, position=(), index_range=(0, float("inf"))):
         """Sort out small mafs and trim mafs."""
-        for maf in self.split_stream(position=()):
+        for maf in self.split_stream(position=position, index_range=index_range):
             if maf.size() - 1 < self.min_size or maf.len_no_gaps() < self.min_length:
                 continue
             maf.clean()
