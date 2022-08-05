@@ -14,9 +14,9 @@ def sum_scores(annotation_file_path, hss_score_dic, out_file_path):
 
     with open(annotation_file_path, "r", encoding="UTF-8") as f_handle:
         for line in f_handle:
-            hss_id = f"{line.split()[0]}_{line.split()[3]}"
-            # p_val = hss_score_dic[hss_id]
-            # p_val = p_val if p_val != 0
+            # legacy
+            # hss_id = f"{line.split()[0]}_{line.split()[3]}"
+            hss_id = line.split()[3]
             p_val_list.append(hss_score_dic[hss_id])
 
     uniq_p_val = list(set(p_val_list))
@@ -40,8 +40,8 @@ def calc_fdr_recall(genome_alignment_dir):
             hss_score_dic.update(json.load(f_handle))
 
     annotation_file_list = [
-        "RNAcode_overlap_BT",
-        "RNAcode_no_overlap_BT",
+        "RNAcode_overlap",
+        "RNAcode_no_overlap",
     ]
 
     for annotation_file in annotation_file_list:

@@ -331,11 +331,14 @@ class MafBlock:
         :rtype: int
         """
         max_dist, discontious_species = self.is_continuous_with(other)
+        # VERBOSE
+        # print(f"The two blocks have a maximal distance {max_dist} and {discontious_species} discontious species.")
 
         if self.get_target() in discontious_species:
             return -float("inf")
 
         if len(discontious_species) > max_del:
+            # VERBOSE
             # print(discontious_species)
             return -len(discontious_species)
 
@@ -353,7 +356,7 @@ class MafBlock:
         other_species = set(new_other.get_all_species(no_target=True))
         self_species = set(self.get_all_species(no_target=True))
 
-        # # VERBOSE
+        # VERBOSE
         # if other_species != self_species:
         #     print(f"Add species to other: {self_species - other_species}")
         #     print(f"Add species to self: {other_species - self_species}")
@@ -414,15 +417,13 @@ class MafBlock:
             ][0]
         except IndexError:
             start_row = 0
+
         try:
             end_row = [m.start() for m in re.finditer("-+$", self.block[1][-1])][0]
         except IndexError:
             end_row = len(self.block[1][-1])
         self.block[1:] = [
             line[:-1] + [line[-1][start_row:end_row]] for line in self.block[1:]
-        ]
-        self.block[1:] = [
-            line for line in self.block[1:] if percent_undefined(line[-1]) < 90
         ]
 
 
@@ -464,7 +465,8 @@ class MafStream:
         block_index = 0
         maf = MafBlock()
         with open_fn(self.path, read_arg) as maf_handle:
-            for line in maf_handle:
+            while True:
+                line = maf_handle.readline()
                 try:
                     line = line.decode("UTF8")
                 except AttributeError:
@@ -510,8 +512,9 @@ class MafStream:
         with open_fn(self.path, read_arg) as maf_handle:
             maf_handle.seek(off_set)
             while True:
+                line = line.readline()
                 try:
-                    line = maf_handle.readline().decode("UTF8")
+                    line = line.decode("UTF8")
                 except AttributeError:
                     pass
                 # EOF
@@ -547,14 +550,13 @@ class MafStream:
         maf = MafBlock()
         with open_fn(self.path, read_arg) as maf_handle:
             while True:
+                line = maf_handle.readline()
                 try:
-                    line = maf_handle.readline().decode("UTF8")
+                    line = line.decode("UTF8")
                 except AttributeError:
                     pass
                 # EOF
                 if line == "":
-                    if current_block_index < block_index:
-                        raise IndexError("block index out of range")
                     break
 
                 if line != "\n":
@@ -566,12 +568,14 @@ class MafStream:
                     maf = MafBlock()
                     current_block_index += 1
 
+        if current_block_index < block_index:
+            raise IndexError("block index out of range")
+
     def concat_blocks_trivial(self, position=(), index_range=(0, float("inf"))):
         """Concatinate blocks without any deletion."""
         maf = MafBlock()
 
         for next_maf in self.iterate_from(index_range[0]):
-            print("A")
             # Only first iteration
             if maf.is_empty():
                 maf = next_maf
@@ -582,14 +586,15 @@ class MafStream:
                     continue
                 if start_maf > position[1]:
                     break
-            if maf.block_index_list[0] > index_range[1]:
+            if max(maf.block_index_list) > index_range[1]:
                 yield maf
                 break
-
             return_value = maf.concat(next_maf)
             if return_value != 0:
                 yield maf
                 maf = next_maf
+        if max(maf.block_index_list) < index_range[1]:
+            yield maf
 
     def concat_blocks_with_deletion(self, position=(), index_range=(0, float("inf"))):
         """Concatinate blocks with deletion."""
@@ -607,13 +612,14 @@ class MafStream:
                 smallest_size = min([maf.size(), next_maf.size()])
                 impeding_species = abs(maf.concat(next_maf))
                 ratio = impeding_species / smallest_size
-
                 if ratio < 0.1:
                     maf.concat(next_maf, max_del=impeding_species)
                     continue
 
             yield maf
             maf = next_maf
+        if maf != next_maf:
+            yield maf
 
     def split_stream(self, position=(), index_range=(0, float("inf"))):
         """Split blocks with sliding window."""

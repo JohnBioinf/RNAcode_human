@@ -1,3 +1,5 @@
+BIOTYPES
+tsv
 BT
 multiz100way
 multiz20way

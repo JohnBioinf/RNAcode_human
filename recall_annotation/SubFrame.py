@@ -15,8 +15,8 @@ def sub_gtf(frame, gtf_file_path):
                 continue
             line_split = line[:-1].split()
             annotation_type = line_split[2]
-            if annotation_type == "exon":
-                start = int(line_split[3])
+            if annotation_type == "CDS":
+                start = int(line_split[3]) - 1
                 strand = 1 if line_split[6] == "+" else -1
                 frame_line = ((start % 3) + 1) * strand
                 if frame_line == frame:
@@ -32,7 +32,7 @@ def sub_bed(frame, bed_file_path):
             if line[0] == "\n":
                 continue
             line_split = line[:-1].split()
-            start = int(line_split[1]) - 1
+            start = int(line_split[1])
             strand = 1 if line_split[5] == "+" else -1
             frame_line = ((start % 3) + 1) * strand
 

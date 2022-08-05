@@ -29,6 +29,7 @@ with open("./parameters_local.json", "r", encoding="UTF-8") as file_handle:
     parameters = json.load(file_handle)
 
 DATA_DIR = parameters["DATA_DIR"]
+DATA_DIR_OLD = parameters["DATA_DIR_OLD"]
 MULTIZ100WAY_WEB_FTP = parameters["MULTIZ100WAY_WEB_FTP"]
 MULTIZ20WAY_WEB_FTP = parameters["MULTIZ20WAY_WEB_FTP"]
 
@@ -37,6 +38,7 @@ P_THRESHOLD = 0.01
 NUM_CPUS = 20
 
 MULTIZ100WAY_DIR = DATA_DIR + "/multiz100way/"
+MULTIZ100WAY_DIR_OLD = DATA_DIR_OLD + "/multiz100way/"
 MULTIZ20WAY_DIR = DATA_DIR + "/multiz20way/"
 
 
@@ -285,17 +287,14 @@ def check_failed_and_retry(genome_alignment_dir):
     )
 
 
-def build_segments(rnacode_res, chromosome, list_maf_blocks=True):
+def build_segments(rnacode_res, chromosome, only_best=True):
     """Build segments from rnacode results as intermediate structure to bed line."""
     segments = []
     for line in rnacode_res:
-        start = int(line[7]) - 1
+        start = int(line[7])
         end = int(line[8])
-        hss_id = [line[0]]
-        if list_maf_blocks:
-            maf_block = [line[6]]
-        else:
-            maf_block = ""
+        hss_id = line[0]
+        maf_block = line[6]
         strand = line[1]
         p_val = float(line[-1])
 
@@ -303,27 +302,38 @@ def build_segments(rnacode_res, chromosome, list_maf_blocks=True):
             "start": start,
             "end": end,
             "strand": strand,
-            "hss_id": hss_id,
+            "id": f"HSS_{hss_id}-{maf_block}",
             "chromosome": chromosome,
-            "maf_block": maf_block,
             "p_val": p_val,
         }
         for segment in segments:
+            # Check overlap
             if (
-                segment["strand"] == new_segment["strand"]
-                and segment["start"] % 3 == new_segment["start"] % 3
-                and new_segment["start"] <= segment["end"]
-                and segment["start"] <= new_segment["end"]
+                new_segment["start"] <= segment[0]["end"]
+                and segment[0]["start"] <= new_segment["end"]
             ):
-                segment["start"] = min((segment["start"], new_segment["start"]))
-                segment["end"] = max((segment["end"], new_segment["end"]))
-                segment["maf_block"] += new_segment["maf_block"]
-                segment["hss_id"] += new_segment["hss_id"]
-                segment["p_val"] = min(new_segment["p_val"], segment["p_val"])
-                break
+                # Not same frame
+                if not (
+                    segment[0]["strand"] == new_segment["strand"]
+                    and segment[0]["start"] % 3 == new_segment["start"] % 3
+                ):
+                    # if only best should be kept check if new segment is better
+                    # than old one
+                    if only_best and segment[0]["p_val"] > new_segment["p_val"]:
+                        segment[0] = new_segment
+                        break
+                # Same frame
+                else:
+                    segment[0]["start"] = min((segment[0]["start"], new_segment["start"]))
+                    segment[0]["end"] = max((segment[0]["end"], new_segment["end"]))
+                    segment[0]["id"] += "," + new_segment["id"]
+                    segment[0]["p_val"] = min(new_segment["p_val"], segment[0]["p_val"])
+                    break
+        # if not overlap found simply add
         else:
-            segments.append(new_segment)
-    return segments
+            segments.append([new_segment])
+    return [seg[0] for seg in segments]
+
 
 
 def build_bed(genome_alignment_dir):
@@ -339,34 +349,36 @@ def build_bed(genome_alignment_dir):
     for chromosome in os.listdir(genome_alignment_dir):
         if not os.path.isdir(genome_alignment_dir + "/" + chromosome):
             continue
+        if chromosome != "chr1":
+            continue
         print(f"Processing {chromosome}")
         chromosome_dir_path = f"{genome_alignment_dir}/{chromosome}/"
         bed_file_path = f"{chromosome_dir_path}/RNAcode.bed"
         hss_score_dic_path = f"{chromosome_dir_path}/hss_score_dic.json"
 
-        failed_twice = find_failed_twice(chromosome_dir_path, block_type="single_block")
-        # Note single maf blocks which failed twice
-        with open(bad_maf_file_path, "a", encoding="UTF-8") as f_handle:
-            f_handle.write(
-                "\n".join(
-                    [
-                        f"{genome_alignment_dir}big_blocks/{mb}.maf"
-                        for mb in failed_twice
-                    ]
-                )
-                + "\n"
-            )
-        failed_twice += find_failed_twice(chromosome_dir_path, block_type="big_block")
-        # if len(failed_twice) != 0:
-        #     print(f"The following blocks failed twice {', '.join(failed_twice)}")
+        # failed_twice = find_failed_twice(chromosome_dir_path, block_type="single_block")
+        # # Note single maf blocks which failed twice
+        # with open(bad_maf_file_path, "a", encoding="UTF-8") as f_handle:
+        #     f_handle.write(
+        #         "\n".join(
+        #             [
+        #                 f"{genome_alignment_dir}big_blocks/{mb}.maf"
+        #                 for mb in failed_twice
+        #             ]
+        #         )
+        #         + "\n"
+        #     )
+        # failed_twice += find_failed_twice(chromosome_dir_path, block_type="big_block")
+        # # if len(failed_twice) != 0:
+        # #     print(f"The following blocks failed twice {', '.join(failed_twice)}")
 
         print("Collect RNAcode results")
         rnacode_res = []
         for rnacode_res_file_path in glob(f"{chromosome_dir_path}/big_blocks/*res.tsv"):
-            block = rnacode_res_file_path.split("/")[-1].replace(".maf.res.tsv", "")
-            if block in failed_twice:
-                # print(f"{block} failed twice.")
-                continue
+            # block = rnacode_res_file_path.split("/")[-1].replace(".maf.res.tsv", "")
+            # if block in failed_twice:
+            #     # print(f"{block} failed twice.")
+            #     continue
             with open(rnacode_res_file_path, "r", encoding="UTF-8") as f_handle:
                 for line in f_handle.read().split("\n")[:-1]:
                     line = line.split("\t")
@@ -378,9 +390,7 @@ def build_bed(genome_alignment_dir):
         segments = build_segments(rnacode_res, chromosome)
 
         hss_score_dic = {
-            f"{seg['chromosome']}_HSS_{'-'.join(seg['hss_id'])}_{'-'.join(seg['maf_block'])}": seg[
-                "p_val"
-            ]
+            seg["id"]: seg["p_val"]
             for seg in segments
         }
 
@@ -426,7 +436,7 @@ def hss_to_bed_line(segments):
     for segment in segments:
         p_val = segment["p_val"] if segment["p_val"] > 0 else 0.000001
         score = min(int(log(p_val, 2) * -1), 1000)
-        name = f"HSS_{'-'.join(segment['hss_id'])}_{'-'.join(segment['maf_block'])}"
+        name = segment["id"]
         thick_end = chrom_end = segment["end"]
         thick_start = chrom_start = segment["start"]
         if segment["strand"] == "-1":
@@ -469,6 +479,7 @@ def full_pipeline(work_dir, web_ftp):
 def main():
     """Execute pipeline according to global parameters."""
     full_pipeline(MULTIZ100WAY_DIR, MULTIZ100WAY_WEB_FTP)
+    full_pipeline(MULTIZ100WAY_DIR_OLD, MULTIZ100WAY_WEB_FTP)
 
 
 if __name__ == "__main__":
