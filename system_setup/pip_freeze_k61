@@ -1,0 +1,7 @@
+Package          Version
+---------------- -------
+intervaltree     3.1.0
+numpy            1.23.1
+pip              22.2.2
+setuptools       41.2.0
+sortedcontainers 2.4.0

@@ -5,12 +5,13 @@ The calculaten works under the assumption that the current annoation is the grou
 """
 
 import json
-
-from IntervalFrameTree import IntervalFrameTree
-
 import os
 from bisect import bisect_right
 import sys
+
+import numpy as np
+
+from IntervalFrameTree import IntervalFrameTree
 
 
 with open("../parameters_local.json", "r", encoding="UTF-8") as file_handle:
@@ -18,7 +19,7 @@ with open("../parameters_local.json", "r", encoding="UTF-8") as file_handle:
 DATA_DIR = parameters["DATA_DIR"]
 HG38_ANNOTATION_WEB_FTP = parameters["HG38_ANNOTATION_WEB_FTP"]
 ANNOTATION_FILE = HG38_ANNOTATION_WEB_FTP.split("/")[-1].replace(".gz", "")
-ANNOTATION_FILE_MOD = ANNOTATION_FILE.replace(".gff", ".mod.gff")
+ANNOTATION_FILE_MOD = ANNOTATION_FILE.replace(".gtf", ".cds.gtf")
 MULTIZ100WAY_DIR = DATA_DIR + "/multiz100way/"
 MULTIZ20WAY_DIR = DATA_DIR + "/multiz20way/"
 
@@ -40,6 +41,7 @@ MULTIZ20WAY_DIR = DATA_DIR + "/multiz20way/"
 #                 protein_id = info_dic["protein_id"]
 #                 collecting_exons = True
 #                 continue
+
 
 def gene_recall(genome_alignment_dir):
     """Calculate a recall by genes is not possible with bedtools, hence own implementation."""
@@ -63,6 +65,7 @@ def gene_recall(genome_alignment_dir):
         if len(intervals) == 0:
             not_found_genes.append(gene_id)
             continue
+        # This is the cut off from RNAcode
         best_p = 0.01
         for hss in intervals:
             hss = hss.split()
@@ -73,12 +76,12 @@ def gene_recall(genome_alignment_dir):
             best_p = min(hss_score_dic[hss_id], best_p)
         p_val_list.append(best_p)
 
-    uniq_p_val = list(set(p_val_list))
-    uniq_p_val.sort()
     p_val_list.sort()
 
     with open(f"{genome_alignment_dir}/gene_recall.tsv", "w", encoding="UTF-8") as f_handle:
-        for p_val in uniq_p_val:
+        # for i in reversed(np.arange(1, 17, 0.000001)):
+        for p_val in np.logspace(-1, -17, num=100):
+            # p_val = pow(10, -i)
             f_handle.write(f"{p_val}\t{bisect_right(p_val_list, p_val)}\n")
 
     with open(f"{genome_alignment_dir}/not_found_genes.lst", "w", encoding="UTF-8") as f_handle:
@@ -113,17 +116,24 @@ if __name__ == "__main__":
 """
 
 import json
-from IntervalFrameTree import IntervalFrameTree
+import IntervalFrameTree
+from importlib import reload
 
 genome_alignment_dir = "/scr/k61san2/john/rnacode_human_CS/multiz100way/"
+
+genome_alignment_dir = "/scr/k61san2/john/rnacode_human/multiz100way/"
+
 with open("../parameters_local.json", "r", encoding="UTF-8") as file_handle:
     parameters = json.load(file_handle)
+
+DATA_DIR_OLD = parameters["DATA_DIR_OLD"]
+
 DATA_DIR = parameters["DATA_DIR"]
+
 HG38_ANNOTATION_WEB_FTP = parameters["HG38_ANNOTATION_WEB_FTP"]
 ANNOTATION_FILE = HG38_ANNOTATION_WEB_FTP.split("/")[-1].replace(".gz", "")
-ANNOTATION_FILE_MOD = ANNOTATION_FILE.replace(".gff", ".mod.gff")
+ANNOTATION_FILE_MOD = ANNOTATION_FILE.replace(".gtf", ".cds.gtf")
 MULTIZ100WAY_DIR = DATA_DIR + "/multiz100way/"
-MULTIZ20WAY_DIR = DATA_DIR + "/multiz20way/"
 
 def info_line_to_dic(info_line):
     info_dic = {}
@@ -134,9 +144,11 @@ def info_line_to_dic(info_line):
         info_dic[field[0].replace(" ", "")] = field[1]
     return info_dic
 
-gtf_ift = IntervalFrameTree(gtf_file_path=f"{DATA_DIR}/{ANNOTATION_FILE_MOD}", remove_non_coding=True)
-rnacode_ift = IntervalFrameTree(bed_file_path=f"{genome_alignment_dir}/RNAcode.bed")
+gtf_ift = IntervalFrameTree.IntervalFrameTree(gtf_file_path=f"{DATA_DIR}/{ANNOTATION_FILE_MOD}", remove_non_coding=True)
 
+rnacode_ift = IntervalFrameTree.IntervalFrameTree(bed_file_path=f"{genome_alignment_dir}/RNAcode.bed")
+
+gtf_ift = IntervalFrameTree.IntervalFrameTree(gtf_file_path="./test.gtf", remove_non_coding=True)
 
 gene_dic = {}
 for chromosome in rnacode_ift.genome_dic:
@@ -152,31 +164,37 @@ for chromosome in rnacode_ift.genome_dic:
             gene_id = info_dic["gene_id"]
             if gene_id not in gene_dic:
                 gene_dic[gene_id] = []
-            if gene_id == "ENSG00000099721":
+            if gene_id == "ENST00000381317":
                 print(frame)
                 print(interval[:-1])
             for overlap_interval in rnacode_ift_it.overlap(interval):
                 gene_dic[gene_id].append(overlap_interval.data[1])
 
 
+rnacode_ift = IntervalFrameTree.IntervalFrameTree(bed_file_path=f"{genome_alignment_dir}/RNAcode.bed")
+
+IntervalFrameTree = reload(IntervalFrameTree)
+
+gtf_ift = IntervalFrameTree.IntervalFrameTree(gtf_file_path="./test.gtf", remove_non_coding=True)
+
 for frame in (-3, -2, -1):
-    for interval in rnacode_ift.genome_dic["1"][frame].items():
+    for interval in rnacode_ift.genome_dic["chr7"][frame].items():
         line_split = interval.data[1].split()
         id = line_split[3]
-        if id == "HSS_1343-chr1_301_120":
+        if id == "HSS_833-hg38.chr7-block_index-1497197":
             hhs_int = interval
             print(frame)
             print(interval[:2])
             break
 
 for frame in (-3, -2, -1):
-    for interval in gtf_ift.genome_dic["1"][frame].items():
+    for interval in gtf_ift.genome_dic["chr7"][frame].items():
         line_split = interval.data[1].split()
         info_line = " ".join(line_split[8:])
         info_dic = info_line_to_dic(info_line)
         gene_id = info_dic["gene_id"]
-        if gene_id == "ENSG00000142632":
-            if not info_dic["exon_number"] == "12":
+        if gene_id == "ENSG00000227191":
+            if not info_dic["exon_number"] == "1":
                 continue
             print(interval.data[1])
             gen_int = interval

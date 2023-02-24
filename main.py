@@ -321,7 +321,7 @@ def build_segments(rnacode_res, chromosome, only_best=True):
                     # than old one
                     if only_best and segment[0]["p_val"] > new_segment["p_val"]:
                         segment[0] = new_segment
-                        break
+                    break
                 # Same frame
                 else:
                     segment[0]["start"] = min((segment[0]["start"], new_segment["start"]))
@@ -335,21 +335,20 @@ def build_segments(rnacode_res, chromosome, only_best=True):
     return [seg[0] for seg in segments]
 
 
-
 def build_bed(genome_alignment_dir):
     """Build bed file from RNAcode results."""
     print("Build bed file")
     genome_bed_file_path = f"{genome_alignment_dir}/RNAcode.bed"
     if os.path.isfile(genome_bed_file_path):
         os.remove(genome_bed_file_path)
+
     bad_maf_file_path = "./bad_maf_blocks.txt"
+
     if os.path.isfile(bad_maf_file_path):
         os.remove(bad_maf_file_path)
 
     for chromosome in os.listdir(genome_alignment_dir):
         if not os.path.isdir(genome_alignment_dir + "/" + chromosome):
-            continue
-        if chromosome != "chr1":
             continue
         print(f"Processing {chromosome}")
         chromosome_dir_path = f"{genome_alignment_dir}/{chromosome}/"
@@ -437,7 +436,7 @@ def hss_to_bed_line(segments):
         p_val = segment["p_val"] if segment["p_val"] > 0 else 0.000001
         score = min(int(log(p_val, 2) * -1), 1000)
         name = segment["id"]
-        thick_end = chrom_end = segment["end"]
+        thick_end = chrom_end = segment["end"] + 1
         thick_start = chrom_start = segment["start"]
         if segment["strand"] == "-1":
             frame = chrom_start % 3 + 4
@@ -470,9 +469,9 @@ def hss_to_bed_line(segments):
 
 def full_pipeline(work_dir, web_ftp):
     """Full Piepline."""
-    # init_work_dir(work_dir, web_ftp)
-    # compute_genome_alignment_big_blocks(work_dir)
-    # check_failed_and_retry(work_dir)
+    init_work_dir(work_dir, web_ftp)
+    compute_genome_alignment_big_blocks(work_dir)
+    check_failed_and_retry(work_dir)
     build_bed(work_dir)
 
 

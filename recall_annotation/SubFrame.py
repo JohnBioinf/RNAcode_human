@@ -5,39 +5,7 @@ When the input is a GTF file also only exons will be selected.
 """
 
 import sys
-
-
-def sub_gtf(frame, gtf_file_path):
-    """Get answer of Life, the Universe and Everything."""
-    with open(gtf_file_path, "r", encoding="UTF-8") as f_handle:
-        for line in f_handle:
-            if line[0] == "#":
-                continue
-            line_split = line[:-1].split()
-            annotation_type = line_split[2]
-            if annotation_type == "CDS":
-                start = int(line_split[3]) - 1
-                strand = 1 if line_split[6] == "+" else -1
-                frame_line = ((start % 3) + 1) * strand
-                if frame_line == frame:
-                    print(line, end="")
-
-
-def sub_bed(frame, bed_file_path):
-    """Get answer of Life, the Universe and Everything."""
-    with open(bed_file_path, "r", encoding="UTF-8") as f_handle:
-        for line in f_handle:
-            if line[0] == "#":
-                continue
-            if line[0] == "\n":
-                continue
-            line_split = line[:-1].split()
-            start = int(line_split[1])
-            strand = 1 if line_split[5] == "+" else -1
-            frame_line = ((start % 3) + 1) * strand
-
-            if frame_line == frame:
-                print(line.replace(" ", "\t"), end="")
+from IntervalFrameTree import IntervalFrameTree
 
 
 def main():
@@ -45,10 +13,11 @@ def main():
     frame = int(sys.argv[1])
     annotation_file = sys.argv[2]
     if ".gtf" in annotation_file:
-        sub_gtf(frame, annotation_file)
+        IntervalFrameTree(gtf_file_path=annotation_file, sub_frame=frame)
     elif ".bed" in annotation_file:
-        sub_bed(frame, annotation_file)
+        IntervalFrameTree(bed_file_path=annotation_file, sub_frame=frame)
     else:
+        print("Unknown file type")
         sys.exit(1)
 
 

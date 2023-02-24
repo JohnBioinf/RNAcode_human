@@ -1,3 +1,6 @@
+UCSC
+anno
+biotype
 BIOTYPES
 tsv
 BT
@@ -84,6 +87,9 @@ substring
 centroid
 tmp
 
+
+numpy
+arange
 finditer
 maxsplit
 isfile

@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 """Calculates the FDR for the recall."""
 
-
+import numpy as np
 import json
 import os
 from bisect import bisect_right
@@ -19,12 +19,14 @@ def sum_scores(annotation_file_path, hss_score_dic, out_file_path):
             hss_id = line.split()[3]
             p_val_list.append(hss_score_dic[hss_id])
 
-    uniq_p_val = list(set(p_val_list))
-    uniq_p_val.sort()
+    # uniq_p_val = list(set(p_val_list))
+    # uniq_p_val.sort()
     p_val_list.sort()
 
     with open(out_file_path, "w", encoding="UTF-8") as f_handle:
-        for p_val in uniq_p_val:
+        # for i in reversed(np.arange(1, 17, 0.000001)):
+        for p_val in np.logspace(-1, -17, num=100):
+            # p_val = pow(10, -i)
             f_handle.write(f"{p_val}\t{bisect_right(p_val_list, p_val)}\n")
 
 

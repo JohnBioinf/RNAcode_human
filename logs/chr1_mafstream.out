@@ -1,0 +1,12 @@
+Traceback (most recent call last):
+  File "stream_chromosome.py", line 67, in <module>
+    main()
+  File "stream_chromosome.py", line 55, in main
+    for maf in maf_stream.discard_stream():
+  File "/homes/biertruck/john/Documents/Analysis/rnacode_human_git/MafBlock.py", line 598, in discard_stream
+    for maf in self.split_stream():
+  File "/homes/biertruck/john/Documents/Analysis/rnacode_human_git/MafBlock.py", line 592, in split_stream
+    yield maf.split_maf_block(start, end, suffix=f"split-{i}")
+  File "/homes/biertruck/john/Documents/Analysis/rnacode_human_git/MafBlock.py", line 233, in split_maf_block
+    raise IndexError("Maf split end can not be bigger than sequence.")
+IndexError: Maf split end can not be bigger than sequence.

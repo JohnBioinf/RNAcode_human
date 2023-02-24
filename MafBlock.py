@@ -422,8 +422,13 @@ class MafBlock:
             end_row = [m.start() for m in re.finditer("-+$", self.block[1][-1])][0]
         except IndexError:
             end_row = len(self.block[1][-1])
+
         self.block[1:] = [
             line[:-1] + [line[-1][start_row:end_row]] for line in self.block[1:]
+        ]
+
+        self.block[2:] = [
+            line for line in self.block[2:] if percent_undefined(line[-1]) < 95
         ]
 
 
@@ -512,7 +517,7 @@ class MafStream:
         with open_fn(self.path, read_arg) as maf_handle:
             maf_handle.seek(off_set)
             while True:
-                line = line.readline()
+                line = maf_handle.readline()
                 try:
                     line = line.decode("UTF8")
                 except AttributeError:

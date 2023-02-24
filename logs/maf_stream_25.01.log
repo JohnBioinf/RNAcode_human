@@ -1,0 +1,7 @@
+nohup: ignoring input and appending output to 'nohup.out'
+Traceback (most recent call last):
+  File "./test_maf_stream.py", line 93, in <module>
+    main()
+  File "./test_maf_stream.py", line 89, in main
+    f_handle.write(maf)
+TypeError: write() argument must be str, not MafBlock
